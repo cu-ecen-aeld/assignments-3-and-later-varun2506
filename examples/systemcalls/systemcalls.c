@@ -210,7 +210,7 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         
         execv(command[0],command);
 
-    	perror("ERROR: exev failed");   // This line executes if exec fails
+    	perror("ERROR: exev failed");   // This line executes if exec fail
     	
     	exit(EXIT_FAILURE);
     }
