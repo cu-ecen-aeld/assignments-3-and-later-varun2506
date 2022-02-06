@@ -102,7 +102,7 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
        return false;
     }
     
-    DEBUG_LOG("pthread_create was successful\n");
+    DEBUG_LOG("pthread_create was successful \n");
     return true;
      
 }
