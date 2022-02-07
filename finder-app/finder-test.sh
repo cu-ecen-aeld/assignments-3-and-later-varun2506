@@ -41,6 +41,19 @@ else
 	exit 1
 fi
 
+#Check for path validity
+if [ -z $(which writer) ]
+then 
+	echo Empty path!
+	exit 1
+fi
+
+#Check for path validity in finder.sh
+if [ -z $(which finder.sh) ]
+then 
+	echo Empty path!
+	exit 1
+fi
 #echo "Removing the old writer utility and compiling as a native application"
 #make clean
 #make
