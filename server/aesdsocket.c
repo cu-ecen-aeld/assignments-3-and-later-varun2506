@@ -560,7 +560,7 @@ int main(int argc, char *argv[])
 		if (status == -1)
 		{
 			printf("Deamon failed!\n");
-			syslog(LOG_DEBUG, "Entering daemon mode failed!");
+			syslog(LOG_DEBUG, "Daemon mode failed!");
 		}
 	}
 
