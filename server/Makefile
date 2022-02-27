@@ -1,8 +1,17 @@
 CC = $(CROSS_COMPILE)gcc
+
+#Flags
 CFLAGS = -Wall -Werror -g
+
 LDFLAG = -pthread -lrt 
-SRC = aesdsocket.c
-OBJS = $(SRC:.c=.o)
+
+#Source
+SRCS = aesdsocket.c
+
+#Object
+OBJS = $(SRCS:.c=.o)
+
+# Target
 TARGET = aesdsocket
 
 all: $(TARGET)
@@ -16,3 +25,6 @@ $(TARGET): $(OBJS)
 
 clean:
 	$(RM) $(TARGET) *.o
+
+#valgrind --leak-check=yes -s --track-origins=yes ./aesdsocket
+#valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose ./aesdsocket
