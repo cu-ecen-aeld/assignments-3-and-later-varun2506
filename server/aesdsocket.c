@@ -50,9 +50,7 @@ typedef struct
 	pthread_mutex_t * mutex;
 	pthread_t thread_id;
 	bool thread_complete;
-}
-
-thread_parameter;
+}thread_parameter;
 
 //Linked list node
 struct slist_data_s
@@ -71,6 +69,7 @@ int status;
 char *cli_buff;
 int packet_length = RESET;
 char rx_buff[BUFF_SIZE];
+
 slist_data_t *data_node = NULL;
 SLIST_HEAD(slisthead, slist_data_s) head;
 
@@ -98,10 +97,10 @@ static void signal_handler(int signal)
 			printf("SIGKILL occured\n");
 			break;
 
-		default:
+		/*default:
 			syslog(LOG_ERR, "Unknown Signal received\n");
 			exit(EXIT_FAILURE);
-			break;
+			break;*/
 
 	}
 
@@ -117,9 +116,13 @@ static void signal_handler(int signal)
 			}
 		}
 		
+	//Free mutex
+	pthread_mutex_destroy(&mutex_lock);
+	
 	// clear and free buffers
 	syslog(LOG_INFO, "Clearing buffers and Exiting\n");
 	printf("Clearing buffers and Exiting\n");
+	
 	unlink(FILE_PATH);
 	close(sockfd);
 	close(clifd);
@@ -314,16 +317,15 @@ void *thread_handler(void *thread_param)
  */
 static void handle_socket()
 {
-	// local variables for socket communication
 
-	//SLIST_HEAD(slisthead, slist_data_s) head;
 	SLIST_INIT(&head);
-	struct sockaddr_in client_address;
+	
+	
 	struct addrinfo hints;
 	struct addrinfo * param;
 	struct itimerval t_interval;
 	socklen_t client_address_length;
-
+	struct sockaddr_in client_address;
 	memset(rx_buff, RESET, BUFF_SIZE);
 
 	//Settings structure parameters
@@ -452,10 +454,13 @@ static void handle_socket()
 			syslog(LOG_INFO, "accept succeeded! Accepted connection from: %s\n", inet_ntoa(client_address.sin_addr));
 			printf("accept connection success\n");
 		}
-
+                
+                
+                
 		//thread parameters
 		data_node = (slist_data_t*) malloc(sizeof(slist_data_t));
 		SLIST_INSERT_HEAD(&head, data_node, entries);
+		
 		data_node->thread_params.clifd = clifd;
 		data_node->thread_params.thread_complete = false;
 		data_node->thread_params.mutex = &mutex_lock;
@@ -470,13 +475,12 @@ static void handle_socket()
 		SLIST_FOREACH(data_node, &head, entries)
 		{
 			pthread_join(data_node->thread_params.thread_id, NULL);
-			//if (data_node->thread_params.thread_complete == true)
-			//{
-//				pthread_join(data_node->thread_params.thread_id,NULL);
+			if (data_node->thread_params.thread_complete == true)
+			{
 				SLIST_REMOVE(&head, data_node, slist_data_s, entries);
 				free(data_node);
 				break;
-			//}
+			}
 		}
 
 		printf("Threads Excited\n");
@@ -500,7 +504,7 @@ static void timer_handler(int signal)
 	struct tm * t_ptr;
 	int t_length = 0;
 	char t_str[200];
-	int fd, data_write;
+	int data_write;
 
 	Tmr = time(NULL);
 
@@ -523,8 +527,8 @@ static void timer_handler(int signal)
 	printf("%s\n", t_str);
 
 	//writing the time to the file
-	fd = open(FILE_PATH, O_APPEND | O_WRONLY);
-	if (fd == -1)
+	filefd = open(FILE_PATH, O_APPEND | O_WRONLY);
+	if (filefd == -1)
 	{
 		syslog(LOG_ERR, "File opening failed\n");
 		exit(EXIT_FAILURE);
@@ -537,7 +541,7 @@ static void timer_handler(int signal)
 		exit(EXIT_FAILURE);
 	}
 
-	data_write = write(fd, t_str, t_length);
+	data_write = write(filefd, t_str, t_length);
 	if (data_write == -1)
 	{
 		syslog(LOG_ERR, "Fail to write on file\n");
@@ -559,7 +563,7 @@ static void timer_handler(int signal)
 		exit(EXIT_FAILURE);
 	}
 
-	close(fd);
+	close(filefd);
 }
 
 /*
