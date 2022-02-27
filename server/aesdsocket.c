@@ -161,7 +161,7 @@ void *thread_handler(void *thread_param)
 	while (!packet_status)
 	{
 		// Recieve data
-		rx_data = recv(clifd, rx_buff, BUFF_SIZE, 0);
+		rx_data = recv(t_params->clifd, rx_buff, BUFF_SIZE, 0);
 		if (rx_data < 0)
 		{
 			syslog(LOG_ERR, "Failed to receive:%d\n", status);
@@ -277,7 +277,7 @@ void *thread_handler(void *thread_param)
 		}
 
 		//send the data
-		status = send(clifd, &char_read, 1, 0);
+		status = send(t_params->clifd, &char_read, 1, 0);
 		if (status == -1)
 		{
 			syslog(LOG_ERR, "Failed to send");
@@ -297,6 +297,7 @@ void *thread_handler(void *thread_param)
 		exit(EXIT_FAILURE);
 	}
 
+        t_params->thread_complete = true;
 	//close file and clear buffer
 	close(filefd);
 	free(cli_buff);
@@ -469,13 +470,13 @@ static void handle_socket()
 		SLIST_FOREACH(data_node, &head, entries)
 		{
 			pthread_join(data_node->thread_params.thread_id, NULL);
-			if (data_node->thread_params.thread_complete == true)
-			{
-				//pthread_join(data_node->thread_params.thread_id,NULL);
+			//if (data_node->thread_params.thread_complete == true)
+			//{
+//				pthread_join(data_node->thread_params.thread_id,NULL);
 				SLIST_REMOVE(&head, data_node, slist_data_s, entries);
 				free(data_node);
 				break;
-			}
+			//}
 		}
 
 		printf("Threads Excited\n");
