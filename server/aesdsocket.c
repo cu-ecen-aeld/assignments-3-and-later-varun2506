@@ -1,534 +1,594 @@
+/***********************************************************************
+ *@file      aesdsocket.c
+ *@version   0.1
+ *@brief     Function implementation file.
+ *
+ *@author    Varun Mehta, varun.mehta@Colorado.edu
+ *@date      Feb 16, 2022
+ *
+ *@institution University of Colorado Boulder (UCB)
+ *@assignment Assignment 5
+ *@due        
+ *
+ *@resources   - Linux system programming book
+ **********************************************************************/
 
+/*
+ *Header files
+ */
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <syslog.h>
-#include <sys/socket.h>
-#include <sys/types.h> 
-#include <netdb.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <fcntl.h>
+#include <syslog.h>
+#include <string.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #include <errno.h>
-#include <stdbool.h>
-#include <signal.h>
+#include <stdarg.h>
 #include <arpa/inet.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <stdlib.h>
 #include <pthread.h>
 #include <sys/queue.h>
 #include <sys/time.h>
 
-#define LISTEN_BACKLOG	10
-#define BUFF_SIZE	100
-#define TOTAL_THREADS 10
+/*
+ *MACRO definition
+ */
+#define RESET 0
+#define PORT             "9000"
+#define FILE_PERMISSIONS (0644)
+#define BUFF_SIZE        100
+#define FILE_PATH        "/var/tmp/aesdsocketdata"
 
-char *port = "9000";
-char *file_path = "/var/tmp/aesdsocketdata";
-//char *op_buffer = NULL;
-
-//defining socket file descriptor
-int sfd = 0;
-int accept_fd = 0;
-int fd = 0;
-
-//Function prototypes
-void socket_open(void);
-void* thread_handler(void* thread_param);
-void temp_function(void);
-
-//Packet parse variables
-int packet_size = 0;
-char c = 0;
-
-//Thread parameter structure
-typedef struct{
-	bool thread_comp_flag;
-	pthread_t thread_id;
-	int cl_accept_fd;
+typedef struct
+{
+	int clifd;
 	pthread_mutex_t *mutex;
-}thread_params;
+	pthread_t thread_id;
+	bool thread_complete;
+}thread_parameter;
 
 //Linked list node
-struct slist_data_s{
-	thread_params	thread_param;
+struct slist_data_s
+{
+	thread_parameter	thread_params;
 	SLIST_ENTRY(slist_data_s) entries;
 };
-
 typedef struct slist_data_s slist_data_t;
 pthread_mutex_t mutex_lock = PTHREAD_MUTEX_INITIALIZER;
-slist_data_t *datap = NULL;
 
-/***********************************************************************************************
-* Name          : sighandler
-* Description   : used to catch the particular signal and perform graceful shutdown.
-* Parameters    : sig_no - the signal received to be handled.
-* RETURN        : None
-***********************************************************************************************/
-void sighandler(int sig_no){
 
-	//handle the particular signal
-	switch(sig_no)
+/*
+ *Global variables
+ */
+int sockfd, clifd, filefd;
+int status;
+char *cli_buff;
+int packet_length = RESET;
+char rx_buff[BUFF_SIZE];
+slist_data_t 	*data_node 		= NULL;
+/*
+ *Function Name: signal_handler (int signal)
+ *Description: handles signal occurered during execution
+ *return: void
+ */
+static void signal_handler(int signal)
+{
+	switch (signal)	// signal handler
 	{
 		case SIGINT:
+			syslog(LOG_INFO, "SIGINT signal received\n");
+			printf("SIGINT occured\n");
+			break;
+
 		case SIGTERM:
+			syslog(LOG_INFO, "SIGTERM signal received\n");
+			printf("SIGTERM occured\n");
+			break;
+
 		case SIGKILL:
-			printf("SIGINT/SIGTEM/SIGKILL detected!\n");
-			syslog(LOG_DEBUG,"Caught signal, exiting");
-			unlink(file_path); //delete the file
-			//free(op_buffer);
-			close(accept_fd);
-			close(sfd);
+			syslog(LOG_INFO, "SIGkill signal received\n");
+			printf("SIGKILL occured\n");
+			break;
+
+		default:
+			syslog(LOG_ERR, "Unknown Signal received\n");
+			exit(EXIT_FAILURE);
 			break;
 
 	}
 
+	// clear and free buffers
+	syslog(LOG_INFO, "Clearing buffers and Exiting\n");
+	printf("Clearing buffers and Exiting\n");
+//	free(cli_buff);
+	unlink(FILE_PATH);
+	close(sockfd);
+	close(clifd);
 	exit(EXIT_SUCCESS);
 }
 
-/***********************************************************************************************
-* Name          : timer_handler
-* Description   : used to catch SIGALRM after timer expiry.
-* Parameters    : sig_no - the signal received to be handled.
-* RETURN        : None
-***********************************************************************************************/
-static void timer_handler(int sig_no){
+/*
+ *Function Name: void* thread_handler(void* thread_param)
+ *Description: Handles thread specific functionalities
+ *return: int
+ */
+void* thread_handler(void* thread_param){
+	int i;
+	bool packet_status = false;
+	ssize_t rx_data = RESET;
+	ssize_t wr_data = RESET;
+	char char_read = RESET;
+	
+	thread_parameter * t_params = (thread_parameter *) thread_param;
+	  //Allocate appropriate buffer memory
+		cli_buff = (char*) malloc((sizeof(char) *BUFF_SIZE));
+		if (cli_buff == NULL)
+		{
+			syslog(LOG_ERR, "Failed to allocate memory\n");
+			printf("malloc() failed\n");
+			exit(EXIT_FAILURE);
+		}
+		else
+		{
+			syslog(LOG_INFO, "Memory allocation successfull\n");
+			printf("malloc() succed\n");
+		}
 
-	/*first store the local time in a buffer*/
-	char time_string[200];
-	time_t ti;
-	struct tm *tm_ptr;
-	int timer_len = 0;
+		memset(cli_buff, RESET, BUFF_SIZE);
+		
+		while (!packet_status)
+		{
+			// Recieve data
+			rx_data = recv(clifd, rx_buff, BUFF_SIZE, 0);
+			if (rx_data < 0)
+			{
+				syslog(LOG_ERR, "Failed to receive:%d\n", status);
+				printf("Receive data failed\n");
+				exit(EXIT_FAILURE);
+			}
+			else if (rx_data == 0)
+			{
+				syslog(LOG_INFO, "Reception successfull\n");
+				printf("Received data successfully\n");
+			}
 
-	ti = time(NULL);
-	tm_ptr = localtime(&ti);
-	if(tm_ptr == NULL){
+			//Traverse through end of packet
+			for (i = 0; i < BUFF_SIZE; i++)
+			{
+				if (rx_buff[i] == '\n')
+				{
+					packet_status = true;
+					i++;
+					break;
+				}
+			}
+
+			packet_length += i;
+
+			//reallocate memory to appropriate size 
+			cli_buff = (char*) realloc(cli_buff, (packet_length + 1));
+			if (cli_buff == NULL)
+			{
+				syslog(LOG_ERR, "Realloc failed\n");
+				printf("realloc failed\n");
+				exit(EXIT_FAILURE);
+			}
+			else
+			{
+				syslog(LOG_INFO, "Reallocation successfull\n");
+				//printf("realloc success\n");
+			}
+
+			strncat(cli_buff, rx_buff, i);
+			memset(rx_buff, 0, BUFF_SIZE);
+		}
+		
+		status = pthread_mutex_lock(t_params->mutex);
+	if (status)
+	{
+		syslog(LOG_ERR, "Mutex loxk failed %d\n", status);
+		exit(EXIT_FAILURE);
+	}
+	
+	//Open file to write data
+		filefd = open(FILE_PATH, O_APPEND | O_WRONLY);
+		if (filefd == -1)
+		{
+			syslog(LOG_ERR, "Failed to create file for appending with Error code:%d\n", filefd);
+			printf("File open failed\n");
+			exit(EXIT_FAILURE);
+		}
+		else
+		{
+			syslog(LOG_INFO, "File created for appending\n");
+			printf("File open succed\n \n");
+		}
+
+		//Write data to file
+		wr_data = write(filefd, cli_buff, strlen(cli_buff));	//start writing to the file
+		if (wr_data == -1)
+		{
+			syslog(LOG_ERR, "Failed to write file with Error code");
+			printf("File write failed\n");
+			exit(EXIT_FAILURE);
+		}
+		else if (wr_data != strlen(cli_buff))
+		{
+			syslog(LOG_ERR, "file written partially\n");
+			printf("File written partially \n");
+			exit(EXIT_FAILURE);
+		}
+		else
+		{
+			syslog(LOG_INFO, "File weitten successfully!\n");
+			printf("File written success\n");
+		}
+
+		close(filefd);
+		
+		//Open file to read data
+		filefd = open(FILE_PATH, O_RDONLY);
+		if (filefd == -1)
+		{
+			syslog(LOG_ERR, "Fail to open file for reading\n");
+			printf("File to open file for read \n");
+			exit(EXIT_FAILURE);
+		}
+		else
+		{
+			syslog(LOG_INFO, "File opened successfully for reading\n");
+			printf("File open to read success \n");
+		}
+
+		for (int i = 0; i < packet_length; i++)
+		{
+			//start reading from the file
+			status = read(filefd, &char_read, 1);
+			if (status == -1)
+			{
+				syslog(LOG_ERR, "Failed to read\n");
+				printf("Failed to read \n");
+				exit(EXIT_FAILURE);
+			}
+			else
+			{
+				syslog(LOG_INFO, "Read successfull\n");
+				//printf("Failed to success \n");
+			}
+
+			//send the data
+			status = send(clifd, &char_read, 1, 0);
+			if (status == -1)
+			{
+				syslog(LOG_ERR, "Failed to send");
+				printf("Failed to send \n");
+				exit(EXIT_FAILURE);
+			}
+			else
+			{
+				syslog(LOG_INFO, "Send successfullyn");
+				//printf("Send success \n");
+			}
+		}
+
+	status = pthread_mutex_unlock (t_params->mutex);
+	if (status)
+	{
+		syslog(LOG_ERR, "pthread_mutex_unlock() failed with error number %d\n", status);
+		exit(EXIT_FAILURE);
+	}
+		//close file and clear buffer
+		close(filefd);
+	free(cli_buff);	
+	close(t_params->clifd);
+	
+	
+	return t_params;
+	
+	
+	
+}
+/*
+ *Function Name: handle_socket()
+ *Description: handles socket communication
+ *return: void
+ */
+static void handle_socket()
+{
+	// local variables for socket communication
+	
+	SLIST_HEAD(slisthead, slist_data_s) head;
+	SLIST_INIT(&head);
+	struct sockaddr_in client_address;
+	struct addrinfo hints;
+	struct addrinfo * param;
+    struct itimerval t_interval;
+	socklen_t client_address_length;
+
+	
+	
+	
+
+	memset(rx_buff, RESET, BUFF_SIZE);
+
+	//Settings structure parameters
+	memset(&hints, RESET, sizeof(hints));
+
+	hints.ai_family = AF_INET6;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
+
+	//get address information and store in structure
+	status = getaddrinfo(NULL, PORT, &hints, &param);
+	if (status != 0)
+	{
+		syslog(LOG_ERR, "getaddrinfo failed with Error code: %d\n", status);
+		printf("getaddrinfo failed\n");
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		syslog(LOG_INFO, "getaddrinfo SUCCESS\n");
+		printf("getaddrinfo success\n\n");
+	}
+
+	// Open the socket connection
+	sockfd = socket(AF_INET6, SOCK_STREAM, 0);
+	if (sockfd == -1)
+	{
+		syslog(LOG_ERR, "Socket failed to open connection with Error code:%d\n", sockfd);
+		printf("Socket open failed\n");
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		syslog(LOG_INFO, "Socket connection opened successfully\n");
+		printf("socket opened successfull\n");
+	}
+	
+	status = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
+	if (status == -1)
+	{
+		syslog(LOG_ERR, "setsockopt() failed.\n");
+		#if DEBUG
+			printf("setsockopt() failed\n");
+		#endif	
+		exit(EXIT_FAILURE);
+	}
+	syslog(LOG_INFO, "setsockopt() succeeded!\n");
+	#if DEBUG
+		printf("setsockopt() succeeded\n");
+	#endif	
+	//Bind socket connection
+	status = bind(sockfd, param->ai_addr, param->ai_addrlen);
+	if (status == -1)
+	{
+		syslog(LOG_ERR, "Binding failed with Error code:%d\n", status);
+		printf("Bind error\n");
+		printf("Bind error:%s", strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		syslog(LOG_INFO, "Binding success\n");
+		printf("Bind success\n");
+	}
+
+	freeaddrinfo(param);
+	//create a file with desired file path and permissions
+	filefd = creat(FILE_PATH, FILE_PERMISSIONS);
+	if (filefd == -1)
+	{
+		syslog(LOG_ERR, "Failed to create file with Error code:%d\n", filefd);
+		printf("File creaation failed\n");
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		syslog(LOG_INFO, "File created successfully\n");
+		printf("File create successfull\n");
+	}
+
+	// Close file
+	close(filefd);
+
+    t_interval.it_interval.tv_sec  = 10; // 10 secs interval
+	t_interval.it_interval.tv_usec = 0;
+	t_interval.it_value.tv_sec     = 10; //10 secs expiry
+	t_interval.it_value.tv_usec    = 0;
+	
+	status = setitimer(ITIMER_REAL, &t_interval, NULL);
+	if (status == -1)
+	{
+		syslog(LOG_ERR, "Failed in Set timer function");
+		printf("setitimer() failed\n");
+		exit(EXIT_FAILURE);
+	}
+	
+	//Handles inital socket connection until interrupted by signal
+	while (1)
+	{
+		
+
+		//Listen to socket connection
+		status = listen(sockfd, 10);
+		if (status == -1)
+		{
+			syslog(LOG_ERR, "Listen failed:%d\n", status);
+			printf("Listen Failed\n");
+			exit(EXIT_FAILURE);
+		}
+		else
+		{
+			syslog(LOG_INFO, "Listen Successfull\n");
+			printf("Listen Successfull\n");
+		}
+
+		//Accept the socket connection
+		client_address_length = sizeof(struct sockaddr);
+
+		clifd = accept(sockfd, (struct sockaddr *) &client_address, &client_address_length);
+		if (clifd == -1)
+		{
+			syslog(LOG_ERR, "Accepting connection failed\n");
+			printf("accept connection failed\n");
+			exit(EXIT_FAILURE);
+		}
+		else
+		{
+			syslog(LOG_INFO, "accept succeeded! Accepted connection from: %s\n", inet_ntoa(client_address.sin_addr));
+			printf("accept connection success\n");
+		}
+
+		//thread parameters
+		data_node = (slist_data_t *) malloc(sizeof(slist_data_t));
+		SLIST_INSERT_HEAD(&head,data_node,entries);
+		data_node->thread_params.clifd           = clifd;
+		data_node->thread_params.thread_complete = false;
+		data_node->thread_params.mutex           = &mutex_lock;
+
+		pthread_create(&(data_node->thread_params.thread_id), 	//Thread ID
+					   NULL,							        //Thread attribute
+					   thread_handler,				            //Thread Handler
+					   &data_node->thread_params );              //Thread parameters
+
+		printf("Threads Created\n");
+
+		SLIST_FOREACH(data_node,&head,entries)
+		{
+			pthread_join(data_node->thread_params.thread_id,NULL);
+			data_node = SLIST_FIRST(&head);
+			SLIST_REMOVE_HEAD(&head, entries);
+			free(data_node);
+		}
+		printf("Threads Excited\n");
+		printf("Closed connection from %s\n",inet_ntoa(client_address.sin_addr));
+	}
+		//close file and clear buffer
+		close(filefd);
+		close(sockfd);
+		syslog(LOG_INFO, "Closed connection with %s\n", inet_ntoa(client_address.sin_addr));
+}
+
+
+/*
+ *Function Name: static void timer_handler(int signal)
+ *Description: Signal handler for timer
+ *return: void
+ */
+static void timer_handler(int signal)
+{
+time_t Tmr;
+struct tm *t_ptr;
+int t_length = 0;
+char t_str[200];
+int fd, data_write;
+
+Tmr = time(NULL);
+
+t_ptr = localtime(&Tmr);
+	if(t_ptr == NULL) {
+		syslog(LOG_ERR, "localtime failed\n");
 		perror("Local timer error!");
 		exit(EXIT_FAILURE);
 	}
 
-	timer_len = strftime(time_string,sizeof(time_string),"timestamp:%d.%b.%y - %k:%M:%S\n",tm_ptr);
-	if(timer_len == 0){
-		perror("strftimer returned 0!");
+t_length = strftime(t_str, sizeof(t_str), "timestamp: %m/%d/%Y - %k:%M:%S\n", t_ptr);
+	if (t_length == RESET) {
+		syslog(LOG_ERR, "strftime failed\n");
+		perror("strftime timer error!");
+		exit(EXIT_FAILURE);
+	}
+	
+	printf("%s\n",t_str);
+
+	//writing the time to the file
+	fd = open(FILE_PATH, O_APPEND | O_WRONLY);
+	if(fd == -1) {
+		syslog(LOG_ERR, "File opening failed\n");
+		exit(EXIT_FAILURE);
+	}
+	
+	status = pthread_mutex_lock(&mutex_lock);
+	if (status)
+	{
+		syslog(LOG_ERR, "Mutex lock error %d\n", status);
+		exit(EXIT_FAILURE);
+	}
+	
+	data_write = write(fd, t_str, t_length);
+	if (data_write == -1) {
+		syslog(LOG_ERR, "Fail to write on file\n");
+		exit(EXIT_FAILURE);
+	}
+	else if (data_write != t_length) {
+		syslog(LOG_ERR, "File failed to write completely\n");
 		exit(EXIT_FAILURE);
 	}
 
-	printf("time value:%s\n",time_string);
-
-	/*Now write this time to the file*/
-	//int fd = open(file_path,O_APPEND | O_WRONLY);
-	fd = open(file_path,O_APPEND | O_WRONLY);
-	if(fd == -1){
-		printf("File open error for appending\n");
-		exit(EXIT_FAILURE);
-	}
-
-	int m_ret = pthread_mutex_lock(&mutex_lock);
-	if(m_ret){
-		printf("Mutex lock error before write\n");
-		exit(EXIT_FAILURE);
-	}
-
-	int nr = write(fd,time_string,timer_len);
-	if(nr == -1){
-		printf("Error: File could not be written!\n");
-		syslog(LOG_ERR,"Error: File could not be written!");
-		exit(EXIT_FAILURE);
-	}else if(nr != timer_len){
-		printf("Error: File partially written!\n");
-		syslog(LOG_ERR,"Error: File partially written!");
-		exit(EXIT_FAILURE);
-	}
-	/*update the global packet size variable, as this is used for reading and sending data
-	to client*/
-	packet_size += timer_len;
-
-	m_ret = pthread_mutex_unlock(&mutex_lock);
-	if(m_ret){
-		printf("Mutex unlock error after write\n");
+    //Update variable for packet length
+	packet_length += t_length;
+	
+	status = pthread_mutex_unlock(&mutex_lock);
+	if(status){
+		syslog(LOG_ERR, "Mutex UNlock error %d\n", status);
 		exit(EXIT_FAILURE);
 	}
 
 	close(fd);
-
 }
-/***********************************************************************************************
-* Name          : main
-* Description   : used to intialize syslog, signal and call other functions.
-* Parameters    : argc- command line argument count
-*                 argv[] - command line argument content.
-* RETURN        : exit status of program
-***********************************************************************************************/
+
+
+/*
+ *Function Name: main(int argc, char *argv[])
+ *Description: Entry point function
+ *return: int
+ */
 int main(int argc, char *argv[])
 {
+	//open syslog for logging
+	openlog("aesd-socket", LOG_PID, LOG_USER);
 
-	//open the log file
-	openlog("aesdsocket-a5",LOG_PID,LOG_USER);
-
-	//Write a test string to log
-	syslog(LOG_DEBUG,"Syslog opened");
-
-	/*register for signal*/
-	signal(SIGINT,sighandler);
-	signal(SIGTERM,sighandler);
-	signal(SIGKILL,sighandler);
-
-	pthread_mutex_init(&mutex_lock, NULL);
-	
-	//Timer configutaion for A6-P1
-	//registering signal handler for timer
-	signal(SIGALRM,timer_handler);
-
-	//Check the actual value of argv here:
-	if((argc > 1) && (!strcmp("-d",(char*)argv[1]))){
-	
-	//if(argc > 1){
-		printf("Entering daemon mode!\n");
-		syslog(LOG_DEBUG,"aesdsocket entering daemon mode");
-		
-		//Enter daemon mode
-		int d_ret = daemon(0,0);
-		if(d_ret == -1){
-			printf("Entering daemon mode failed!\n");
-			syslog(LOG_DEBUG,"Entering daemon mode failed!");
-			printf("daemon error: %s\n",strerror(errno));
+	if ((argc > 1) && (!strcmp("-d", (char*) argv[1])))
+	{
+		status = daemon(0, 0);
+		if (status == -1)
+		{
+			printf("Deamon failed!\n");
+			syslog(LOG_DEBUG, "Daemon mode failed!");
 		}
 	}
 
-	socket_open();
+	if (signal(SIGINT, signal_handler) == SIG_ERR) {
+		syslog(LOG_ERR, "SIGINT handler failed\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if (signal(SIGTERM, signal_handler) == SIG_ERR) {
+		syslog(LOG_ERR, "SIGTERM handler failed\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if(signal(SIGALRM, timer_handler) == SIG_ERR) {
+		syslog(LOG_ERR, "SIGALRM handler failed\n");
+		exit(EXIT_FAILURE);
+	}
+	/*if (signal (SIGKILL, signal_handler) == SIG_ERR) {
+		syslog(LOG_ERR, "SIGKILL handler failed\n");
+		exit (EXIT_FAILURE);
+	}*/
+
+    pthread_mutex_init(&mutex_lock, NULL);
+	
+	handle_socket();
 
 	//closing syslog
 	closelog();
 
 	return 0;
 }
-
-/***********************************************************************************************
-* Name          : socket_open
-* Description   : perform all the server socket configuration related steps, read packets from 
-*                 client, write packet to the file and sends data back to client.
-* Parameters    : None
-* RETURN        : None
-***********************************************************************************************/
-void socket_open(void)
-{
-	//defining all socket related resources
-	struct addrinfo hints;
-	struct addrinfo *results;
-	struct sockaddr client_addr;
-	socklen_t client_addr_size;
-	//char buff[BUFF_SIZE] = {0};
-	char ipv_4[INET_ADDRSTRLEN];
-	
-	//new variables for A6-P1
-	SLIST_HEAD(slisthead, slist_data_s) head;
-	SLIST_INIT(&head);
-
-	//1. Set the sockaddr using getaddrinfo
-	
-	//clear the hints first
-	memset(&hints,0,sizeof(hints));
-	
-	//set all the hint parameters then
-	hints.ai_flags = AI_PASSIVE;
-	hints.ai_family = AF_INET6;
-	hints.ai_socktype = SOCK_STREAM;
-
-	//store the result 
-	int getaddr_ret = getaddrinfo(NULL,port,&hints,&results);
-	if(getaddr_ret != 0){
-		printf("Error: getaddrinfo failed\n");
-		syslog(LOG_ERR,"Error: getaddrinfo failed");
-		exit(1);
-	}
-
-	//2. First open the socket
-	printf("Opening socket.\n");
-	sfd = socket(PF_INET6, SOCK_STREAM, 0);//IPv4,TCP,Any protocol
-	if(sfd == -1){
-		printf("Error: socket() failed\n");
-		syslog(LOG_ERR,"Error: socket() failed");
-		freeaddrinfo(results);
-		exit(1);
-	}
-
-	int sopt_ret = setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
-	if(sopt_ret < 0){
-		printf("Error: setsockopt failed\n");
-		syslog(LOG_ERR,"Error: setsockopt failed");
-		printf("setsockopt error: %s\n",strerror(errno));
-		freeaddrinfo(results);
-		exit(1);
-	}
-
-	//3. Bind / assign name to a socket
-	printf("Binding the socket descriptor:%d.\n",sfd);
-	int bind_ret = bind(sfd, results->ai_addr, results->ai_addrlen);
-	if(bind_ret == -1){
-		printf("Error: Bind failed\n");
-		syslog(LOG_ERR,"Error: Bind failed");
-		printf("bind error: %s\n",strerror(errno));
-		freeaddrinfo(results);
-		exit(1);
-	}
-
-	//Create file
-	fd = creat(file_path, 0644);
-	if(fd == -1){
-		printf("Error: File could not be created!\n");
-		syslog(LOG_ERR,"Error: File could not be created!");
-		exit(1);
-	}
-
-	//close fd after creating
-	close(fd);
-
-	//free after use
-	freeaddrinfo(results);
-
-	/*Timer handler part*/
-	struct itimerval inter_timer;
-
-	inter_timer.it_interval.tv_sec = 10; //timer interval of 10 secs
-	inter_timer.it_interval.tv_usec = 0;
-	inter_timer.it_value.tv_sec = 10; //time expiration of 10 secs
-	inter_timer.it_value.tv_usec = 0;
-
-	//arming the timer, choosing wall clock, not storing in old_value
-	int tm_ret = setitimer(ITIMER_REAL, &inter_timer, NULL);
-	if(tm_ret == -1){
-		printf("timer error:%s\n",strerror(errno));
-		syslog(LOG_DEBUG,"timer error:%s",strerror(errno));
-	}
-
-	while(1){
-
-		//4. Listen on the socket
-		printf("Listening on socket.\n");
-		int list_ret = listen(sfd, LISTEN_BACKLOG);
-		if(list_ret == -1){
-			printf("Error: Listen failed\n");
-			syslog(LOG_ERR,"Error: Listen failed");
-			freeaddrinfo(results);
-			exit(1);
-		}
-
-		//5. accept the socket
-		client_addr_size = sizeof(struct sockaddr);
-	
-		printf("Accepting connection.\n");
-		accept_fd = accept(sfd,(struct sockaddr *)&client_addr, &client_addr_size);
-		if(accept_fd == -1){
-			printf("Error: accept failed\n");
-			printf("accept error: %s\n",strerror(errno));
-			syslog(LOG_ERR,"Error: accept failed");
-			freeaddrinfo(results);
-			exit(1);
-		}
-
-		//Below logic required to get ip address in readable format.
-		struct sockaddr_in *addr = (struct sockaddr_in *)&client_addr;
-
-		inet_ntop(AF_INET, &(addr->sin_addr),ipv_4,INET_ADDRSTRLEN);
-
-		//Logging the client connection and address
-		syslog(LOG_DEBUG,"Accepting connection from %s",ipv_4);
-		printf("Accepting connection from %s\n",ipv_4);
-
-		/*Adding below part for A6-P1*/
-
-		//allocating new node for the data
-		datap = (slist_data_t *) malloc(sizeof(slist_data_t));
-		SLIST_INSERT_HEAD(&head,datap,entries);
-
-		//Inserting thread parameters now
-		datap->thread_param.cl_accept_fd = accept_fd;
-		datap->thread_param.thread_comp_flag = false;
-		datap->thread_param.mutex = &mutex_lock;
-
-		pthread_create(&(datap->thread_param.thread_id), 			//the thread id to be created
-							NULL,			//the thread attribute to be passed
-							thread_handler,				//the thread handler to be executed
-							&datap->thread_param//the thread parameter to be passed
-							);
-
-		printf("All thread created now waiting to exit\n");
-
-
-		SLIST_FOREACH(datap,&head,entries){
-			pthread_join(datap->thread_param.thread_id,NULL);
-			if(datap->thread_param.thread_comp_flag == true){
-				// pthread_join(datap->thread_param.thread_id,NULL);
-				datap = SLIST_FIRST(&head);
-				SLIST_REMOVE_HEAD(&head, entries);
-				free(datap);
-			}
-		}
-		/*The above code follow the below logic:
-			while(head!=NULL){
-				data = head;
-				head = head->next;
-				free(data);
-			}
-		*/
-		
-		printf("All thread exited!\n");
-
-		syslog(LOG_DEBUG,"Closed connection from %s",ipv_4);
-		printf("Closed connection from %s\n",ipv_4);
-
-	}
-
-	//9. Close sfd, accept_fd
-	close(accept_fd);
-	close(sfd);
-
-}
-
-/***********************************************************************************************
-* Name          : thread_handler
-* Description   : performs the thread specific client data read, write to file and send steps. 
-* Parameters    : thread parameter
-* RETURN        : thread parameter
-***********************************************************************************************/
-void* thread_handler(void* thread_param){
-
-	//Package storage related variables
-	bool packet_comp = false;
-	int i;
-	int recv_ret = 0;
-	int m_ret = 0;
-	char buff[BUFF_SIZE] = {0};
-	char *op_buffer = NULL;
-
-	//get the parameter of the thread
-	thread_params * params = (thread_params *) thread_param;
-
-	//For test
-	op_buffer = (char *) malloc(sizeof(char)*BUFF_SIZE);
-	if(op_buffer == NULL){
-		printf("Malloc failed!\n");
-		exit(1);
-	}
-	memset(op_buffer,0,BUFF_SIZE);
-	//For test
-
-	/*Packet reception, detection and storage logic*/
-	while(packet_comp == false){
-
-		//printf("Receiving data from descriptor:%d.\n",sfd);
-
-		recv_ret = recv(params->cl_accept_fd, buff, BUFF_SIZE ,0); //**!check the flag
-		if(recv_ret < 0){
-			printf("Error: Receive failed\n");
-			printf("recv error: %s\n",strerror(errno));
-			syslog(LOG_ERR,"Error: Receive failed");
-			exit(1);
-		}else if(recv_ret == 0){
-			break;
-		}
-
-		/*Detect '\n' or ASCII value 
-			10 in the packet.
-		*/
-		for(i = 0;i < BUFF_SIZE;i++){
-
-			if(buff[i] == 10){
-				packet_comp = true;
-				i++;
-				break;
-			}
-
-		}
-		packet_size += i;
-
-		/*reallocate to a larger buffer now as static buffer can
-			only accomodate upto fixed size*/
-		op_buffer = (char *) realloc(op_buffer,(packet_size+1));
-		if(op_buffer == NULL){
-			printf("Realloc failed\n");
-			exit(1);
-		}
-
-		strncat(op_buffer,buff,i);
-
-		memset(buff,0,BUFF_SIZE);
-	}
-
-	//Test
-	m_ret = pthread_mutex_lock(params->mutex);
-	if(m_ret){
-		printf("Mutex lock error before write\n");
-		exit(1);
-	}
-	//Test
-
-	/*Write the data received from client to the 
-	file first & open in append mode*/
-	int fd = open(file_path,O_APPEND | O_WRONLY);
-	if(fd == -1){
-		printf("File open error for appending\n");
-		exit(1);
-	}
-
-	int nr = write(fd,op_buffer,strlen(op_buffer));
-	if(nr == -1){
-		printf("Error: File could not be written!\n");
-		syslog(LOG_ERR,"Error: File could not be written!");
-		exit(1);
-	}else if(nr != strlen(op_buffer)){
-		printf("Error: File partially written!\n");
-		syslog(LOG_ERR,"Error: File partially written!");
-		exit(1);
-	}
-
-	close(fd);
-
-	/*Below is the logic for reading the data from the
-		input file byte by byte and sending to client.
-	*/
-	memset(buff,0,BUFF_SIZE);
-
-	fd = open(file_path,O_RDONLY);
-	if(fd == -1){
-		printf("File open error for reading\n");
-		exit(1);
-	}
-
-	//sending data byte-by-byte
-	for(int i=0;i<packet_size;i++){
-
-		//read the file data in a buffer
-		int rd = read(fd, &c, 1);
-		//printf("---Read File descriptor:%d\n---",fd);
-		if(rd == -1){
-			printf("Reading from file failed!\n");
-			printf("file read error: %s\n",strerror(errno));
-			exit(1);
-		}
-
-		int send_ret = send(params->cl_accept_fd,&c,1,0);
-		//printf("---Write Client descriptor:%d\n---",params->cl_accept_fd);
-		if(send_ret == -1){
-			printf("Error: Data could not be sent:%s\n",strerror(errno));
-			syslog(LOG_ERR,"Error: Data could not be sent");
-			exit(1);
-		}
-	}
-	
-	close(fd);
-
-	m_ret = pthread_mutex_unlock(params->mutex);
-	if(m_ret){
-		printf("Mutex unlock error after read/send\n");
-		exit(1);
-	}
-
-	params->thread_comp_flag = true;
-
-	close(params->cl_accept_fd);
-
-	//Free the allocated buffer
-	free(op_buffer);
-
-
-	return params;
-}
-//[EOF]
