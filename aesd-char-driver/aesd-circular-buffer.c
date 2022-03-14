@@ -73,46 +73,53 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+const char* void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
     /**
     * TODO: implement per description 
     */
-    
+    const char* entry_ptr = NULL;
+     
     openlog("Circular buffer add entry", LOG_PID, LOG_USER);
     
      //Check if buffer is full
-   if(buffer->full == true){
+     if ( (buffer->in_offs == buffer->out_offs) && buffer->full ){
+        entry_ptr = = buffer->entry[buffer->in_offs].buffptr;
+ 
         buffer->entry[buffer->in_offs] = *(add_entry);
+        
         buffer->in_offs++;   // Increment head
-        buffer->out_offs++;  // Increment tail
         
-     syslog(LOG_INFO, "Buffer is full\n");
-      closelog();
+         //Check rollover
+        if(buffer->in_offs == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
+        buffer->in_offs = 0;
+        }
+        
+        buffer->out_offs = buffer->in_offs; 
+       }
+      else
+    {
+        buffer->entry[buffer->in_offs] = *add_entry;
+        
+        buffer->in_offs++;
+
+        //Check rollover
+        if(buffer->in_offs == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+        
+        buffer->in_offs = 0;
+
+        //Check for Buffer full
+        if(buffer->in_offs == buffer->out_offs) {
+            buffer->full = true;
+            }
+        else {
+            buffer->full = false;
+            }
+        
+    }
         return;
-   }
-    
-    //add string
-    buffer->entry[buffer->in_offs] = *(add_entry);
-
-    //Increment head
-    buffer->in_offs++;
-
-    //Reset head and tail if full or empty
-    if(buffer->in_offs == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
-        buffer->in_offs = RESET;
-        }
-
-    //Check if full, i.e out_offs == in_offs
-    if(buffer->in_offs == buffer->out_offs) {
-        buffer->full = true;
-        }
-    else {
-        buffer->full = false;
-        }
-        
-        closelog();
 }
+
 
 /**
 * Initializes the circular buffer described by @param buffer to an empty struct

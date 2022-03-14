@@ -35,6 +35,7 @@
 #include <sys/queue.h>
 #include <sys/time.h>
 
+#
 /*
  *MACRO definition
  */
@@ -42,7 +43,13 @@
 #define PORT             "9000"
 #define FILE_PERMISSIONS (0644)
 #define BUFF_SIZE        100
-#define FILE_PATH        "/var/tmp/aesdsocketdata"
+
+#define USE_AESD_CHAR_DEVICE	(1)
+#if (USE_AESD_CHAR_DEVICE == 1)
+	#define FILE_PATH        "/dev/aesdchar";
+#else
+       #define FILE_PATH        "/var/tmp/aesdsocketdata"
+#endif
 
 typedef struct
 {
@@ -396,7 +403,7 @@ static void handle_socket()
 
 	// Close file
 	close(filefd);
-
+#if (USE_AESD_CHAR_DEVICE==0)
     t_interval.it_interval.tv_sec  = 10; // 10 secs interval
 	t_interval.it_interval.tv_usec = 0;
 	t_interval.it_value.tv_sec     = 10; //10 secs expiry
@@ -409,7 +416,7 @@ static void handle_socket()
 		printf("setitimer() failed\n");
 		exit(EXIT_FAILURE);
 	}
-	
+#endif
 	//Handles inital socket connection until interrupted by signal
 	while (1)
 	{
@@ -481,6 +488,7 @@ static void handle_socket()
  *Description: Signal handler for timer
  *return: void
  */
+#if (USE_AESD_CHAR_DEVICE==0)
 static void timer_handler(int signal)
 {
 time_t Tmr;
@@ -542,6 +550,7 @@ t_length = strftime(t_str, sizeof(t_str), "timestamp: %m/%d/%Y - %k:%M:%S\n", t_
 
 	close(fd);
 }
+#endif
 
 
 /*
@@ -574,10 +583,12 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
+#if (USE_AESD_CHAR_DEVICE == 0)
 	if(signal(SIGALRM, timer_handler) == SIG_ERR) {
 		syslog(LOG_ERR, "SIGALRM handler failed\n");
 		exit(EXIT_FAILURE);
 	}
+#endif
 	/*if (signal (SIGKILL, signal_handler) == SIG_ERR) {
 		syslog(LOG_ERR, "SIGKILL handler failed\n");
 		exit (EXIT_FAILURE);
