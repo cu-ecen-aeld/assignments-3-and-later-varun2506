@@ -16,6 +16,7 @@
 #include <linux/printk.h>
 #include <linux/types.h>
 #include <linux/cdev.h>
+#include <linux/slab.h>
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
 int aesd_major =   0; // use dynamic major
@@ -69,7 +70,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 	}
 	
 	// Check for NULL parameters
-	if (count == NULL){
+	if (count == 0){
 		return 0;
 	}
 	
@@ -122,7 +123,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 	}
 	
 	// Check for NULL parameters
-	if (count == NULL){
+	if (count == 0){
 		return 0;
 	}
 	
@@ -157,17 +158,17 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 	dev->buff_entry.size += retval;
 	
 	//add \n in circular buffer
-	if(memchr(dev->buffer_entry.buffptr, '\n', dev->buffer_entry.size)){
+	if(memchr(dev->buffer_entry.buffptr, '\n', dev->buff_entry.size)){
 
-		new_entry = aesd_circular_buffer_add_entry(&dev->circular_buffer, &dev->buff_entry); 
+		new_entry = aesd_circular_buffer_add_entry(&dev->cir_buffer, &dev->buff_entry); 
 		
 		if(new_entry){
 			kfree(new_entry);// !doubt about this
 		}
 
 		//clear entry parameters
-		dev->buffer_entry.buffptr = NULL;
-		dev->buffer_entry.size = 0;
+		dev->buff_entry.buffptr = NULL;
+		dev->buff_entry.size = 0;
 
 	}
 

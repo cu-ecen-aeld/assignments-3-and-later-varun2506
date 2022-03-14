@@ -13,8 +13,7 @@
 #else
 #include <string.h>
 #endif
-
-#include <syslog.h>   
+ 
 #include "aesd-circular-buffer.h"
 
 #define RESET 0
@@ -38,7 +37,6 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 
     buff_idx = buffer->out_offs;
     
-     openlog("AESD Circular buffer", LOG_PID, LOG_USER); 
     //iterate till in_idx
     do{
         
@@ -61,7 +59,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     }while(buff_idx != buffer->in_offs);
 
 
-    closelog();
+
     
     return NULL;
 }
@@ -80,7 +78,6 @@ const char* aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, 
     */
     const char* entry_ptr = NULL;
      
-    openlog("Circular buffer add entry", LOG_PID, LOG_USER);
     
      //Check if buffer is full
      if ( (buffer->in_offs == buffer->out_offs) && buffer->full ){
