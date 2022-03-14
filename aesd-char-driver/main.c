@@ -158,9 +158,9 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 	dev->buff_entry.size += retval;
 	
 	//add \n in circular buffer
-	if(memchr(dev->buffer_entry.buffptr, '\n', dev->buff_entry.size)){
+	if(memchr(dev->buff_entry.buffptr, '\n', dev->buff_entry.size)){
 
-		new_entry = aesd_circular_buffer_add_entry(&dev->cir_buffer, &dev->buff_entry); 
+		new_entry = aesd_circular_buffer_add_entry(&dev->cir_buff, &dev->buff_entry); 
 		
 		if(new_entry){
 			kfree(new_entry);// !doubt about this
