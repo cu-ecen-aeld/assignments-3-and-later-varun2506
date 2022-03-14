@@ -84,7 +84,7 @@ const char* aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, 
     
      //Check if buffer is full
      if ( (buffer->in_offs == buffer->out_offs) && buffer->full ){
-        entry_ptr = = buffer->entry[buffer->in_offs].buffptr;
+        entry_ptr = buffer->entry[buffer->in_offs].buffptr;
  
         buffer->entry[buffer->in_offs] = *(add_entry);
         
@@ -117,7 +117,7 @@ const char* aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, 
             }
         
     }
-        return;
+        return entry_ptr;
 }
 
 
